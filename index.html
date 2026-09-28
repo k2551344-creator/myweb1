@@ -2,17 +2,137 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <title>태환의 첫 웹사이트</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>Supabase Test</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 600px;
+      margin: 40px auto;
+      padding: 20px;
+    }
+
+    input {
+      padding: 10px;
+      margin: 5px;
+    }
+
+    button {
+      padding: 10px 20px;
+      cursor: pointer;
+    }
+
+    .member {
+      border-bottom: 1px solid #ddd;
+      padding: 10px;
+    }
+  </style>
 </head>
 
 <body>
-  <h1>내 첫 번째 웹사이트</h1>
-  <h2>GitHub Pages 테스트</h2>
 
-  <p>드디어 내가 만든 웹페이지가 인터넷에 올라갔다.</p>
+<h1>Supabase 회원 테스트</h1>
 
-  <button onclick="alert('잘 작동합니다! 진짜루')">
-    눌러보세요
-  </button>
+<input id="name" placeholder="이름">
+<input id="phone" placeholder="전화번호">
+
+<button onclick="addMember()">회원 추가</button>
+
+<h2>회원 목록</h2>
+
+<div id="members"></div>
+
+
+<script>
+
+const SUPABASE_URL =
+  "https://neswgimmvxzhqtnoaslu.supabase.co";
+
+const SUPABASE_KEY =
+  "sb_publishable_LpCGFmydYMJAN3SFl04MAw_PmabehYU";
+
+const db = supabase.createClient(
+  SUPABASE_URL,
+  SUPABASE_KEY
+);
+
+
+// 데이터 읽기
+async function loadMembers() {
+
+  const { data, error } =
+    await db
+      .from("members")
+      .select("*")
+      .order("id", { ascending: false });
+
+  if (error) {
+    console.error(error);
+    return;
+  }
+
+  const box =
+    document.getElementById("members");
+
+  box.innerHTML = "";
+
+  data.forEach(member => {
+
+    box.innerHTML += `
+      <div class="member">
+        ${member.id}
+        -
+        ${member.name}
+        -
+        ${member.phone ?? ""}
+      </div>
+    `;
+
+  });
+
+}
+
+
+// 데이터 추가
+async function addMember() {
+
+  const name =
+    document.getElementById("name").value;
+
+  const phone =
+    document.getElementById("phone").value;
+
+
+  const { data, error } =
+    await db
+      .from("members")
+      .insert([
+        {
+          name: name,
+          phone: phone
+        }
+      ]);
+
+  if (error) {
+    alert(error.message);
+    return;
+  }
+
+  document.getElementById("name").value = "";
+  document.getElementById("phone").value = "";
+
+  loadMembers();
+}
+
+
+// 시작할 때 데이터 읽기
+loadMembers();
+
+</script>
+
 </body>
 </html>
