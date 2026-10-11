@@ -2,7 +2,9 @@ import {createClient} from '@supabase/supabase-js';
 import type {State,Center,Product} from '../lib/model';
 declare const __SUPABASE_URL__:string;
 declare const __SUPABASE_KEY__:string;
-export const db=createClient(__SUPABASE_URL__,__SUPABASE_KEY__,{auth:{storageKey:'any-boxing-myweb1-auth',detectSessionInUrl:true}});
+export const db=createClient(__SUPABASE_URL__,__SUPABASE_KEY__,{auth:{storageKey:'any-boxing-myweb1-auth',detectSessionInUrl:true,persistSession:true,autoRefreshToken:true}});
+export let passwordRecoveryVerified=false;
+db.auth.onAuthStateChange(event=>{if(event==='PASSWORD_RECOVERY')passwordRecoveryVerified=true;if(event==='SIGNED_OUT')passwordRecoveryVerified=false;});
 const imageIds=new Map<string,string>();
 const empty=():State=>({centers:[],products:[],members:[],subscriptions:[],lockers:[],payments:[],attendance:[],priceHistory:[],lockerHistory:[],paymentConfigs:[],orders:[]});
 function checked<T>(r:{data:T,error:any}):NonNullable<T> {if(r.error)throw r.error;if(r.data==null)throw Error("서버 응답이 비어 있습니다.");return r.data;}
@@ -35,7 +37,7 @@ export async function uploadImage(centerId:string,file:File){
  const signed=checked(await db.storage.from('center-media').createSignedUrl(path,3600));
  imageIds.set(signed.signedUrl,id);return signed.signedUrl;
 }
-export function friendlyError(e:unknown){const message=e instanceof Error?e.message:(e as any)?.message??'요청에 실패했습니다.';if(/schema cache|does not exist/.test(message))return '추가 DB 설정이 필요합니다. 관리자에게 05_회원결제확장.sql 적용을 요청해 주세요.';if(/Invalid login credentials/.test(message))return '이메일 또는 비밀번호를 확인해 주세요.';if(/Email not confirmed/.test(message))return '가입 이메일의 인증 링크를 먼저 눌러 주세요.';return message;}
+export function friendlyError(e:unknown){const message=e instanceof Error?e.message:(e as any)?.message??'요청에 실패했습니다.';if(/schema cache|does not exist/.test(message))return '추가 DB 설정이 필요합니다. 관리자에게 최신 SQL(05번 및 07번) 적용 여부를 확인해 주세요.';if(/Invalid login credentials/.test(message))return '이메일 또는 비밀번호를 확인해 주세요.';if(/Email not confirmed/.test(message))return '가입 이메일의 인증 링크를 먼저 눌러 주세요.';return message;}
 
 export async function updateProfile(name:string,phone:string){const {error}=await db.rpc('gym_update_profile',{payload:{name,phone}});if(error)throw error;}
 export async function memberData(){const {data:{session}}=await db.auth.getSession();if(!session)return {profile:null,memberships:[]};const [p,m]=await Promise.all([db.from('profiles').select('name,phone').eq('id',session.user.id).single(),db.from('gym_memberships').select('*').eq('member_id',session.user.id).order('created_at',{ascending:false})]);return {profile:checked(p),memberships:checked(m)};}

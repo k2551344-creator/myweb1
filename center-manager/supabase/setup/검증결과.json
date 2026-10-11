@@ -1,5 +1,5 @@
 {
-  "testedAt": "2026-10-11T17:31:26.418Z",
+  "testedAt": "2026-10-11T18:17:16.991Z",
   "engine": "PGlite PostgreSQL 0.5.8",
   "supabaseSystemSchemas": "auth/storage minimal fixtures; hosted services not tested",
   "passed": 40,
