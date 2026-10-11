@@ -1,0 +1,42 @@
+import {readFileSync} from 'node:fs';
+import assert from 'node:assert/strict';
+import {PGlite} from '../.sites-runtime/sql-check/node_modules/@electric-sql/pglite/dist/index.js';
+process.on('uncaughtException',e=>{console.error(e.message,e.where??'');process.exit(1)});
+const db=new PGlite();await db.waitReady;let passed=0;const pass=s=>{passed++;console.log('PASS '+s)};
+const source=readFileSync('tests/supabase-schema.mjs','utf8');await db.exec(source.split('const bootstrap=`')[1].split('`;')[0]);
+for(const file of ['202609290001_initial.sql','202609290002_catalog.sql','202610120001_member_commerce.sql','202610120001_member_commerce.sql'])await db.exec(readFileSync('supabase/migrations/'+file,'utf8'));pass('additive migration and repeat');
+const owner='10000000-0000-4000-8000-000000000001',member='10000000-0000-4000-8000-000000000002',other='10000000-0000-4000-8000-000000000003';
+await db.exec(`insert into auth.users(id,email) values('${owner}','owner@test.invalid'),('${member}','member@test.invalid'),('${other}','other@test.invalid')`);
+const cid=(await db.query("insert into public.centers(name,brand) values('A','BOX') returning id")).rows[0].id;
+const c2=(await db.query("insert into public.centers(name,brand) values('B','BOX') returning id")).rows[0].id;
+await db.query("insert into public.center_admins(center_id,user_id,role) values($1,$2,'owner')",[cid,owner]);
+async function role(name,user=''){await db.exec(`reset role;select set_config('request.jwt.claim.sub','${user}',false);set role ${name}`)}
+async function call(name,args){return (await db.query(`select public.${name}(${Object.keys(args).map((k,i)=>`${k}=>$${i+1}`).join(',')}) as result`,Object.values(args))).rows[0].result;}
+const payload=(name,p)=>call(name,{payload:JSON.stringify(p)});
+async function reject(fn,pattern,label){await assert.rejects(fn,pattern);pass(label)}
+await role('authenticated',owner);await payload('gym_save_center_v2',{id:cid,name:'A',brand:'BOX',businessName:'사업자 A',representative:'대표'});pass('branch business details saved');
+await reject(()=>payload('gym_save_center_v2',{id:c2,name:'B',brand:'BOX'}),/권한/,'cross-branch edit denied');
+const base={centerId:cid,name:'2주 회원권',description:'intro',category:'회원권',details:'상세',terms:'약관 v1',cancellationNotice:'해지 v1',intervalUnit:'week',intervalCount:2,price:50000,recurring:false,weeklyLimit:3,capacity:10,stock:0,active:true,selling:true,sort:1,accessCenters:[cid]};
+const pid=await payload('gym_save_product_v2',base),lid=await payload('gym_save_locker',{centerId:cid,number:'A01',location:'입구',price:5000,status:'AVAILABLE'});
+await role('authenticated',member);await reject(()=>payload('gym_save_product_v2',{...base,id:pid}),/권한/,'member product edit denied');await reject(()=>payload('gym_save_locker',{centerId:cid,number:'bad',price:0,status:'AVAILABLE'}),/권한/,'member locker edit denied');
+await reject(()=>call('gym_save_toss',{actor:owner,payload:JSON.stringify({centerId:cid}),ciphertext:'xxxxxxxxxxxxxxxxxxxx'}),/permission denied/,'browser secret write denied');
+await role('service_role');await call('gym_save_toss',{actor:owner,payload:JSON.stringify({centerId:cid,mode:'test',enabled:true,paymentClientKey:'test_ck_fixture',billingClientKey:'test_ck_fixture',merchantLabel:'A'}),ciphertext:'encrypted-fixture-12345678'});pass('branch credential configured by server');
+await reject(()=>call('gym_save_toss',{actor:member,payload:JSON.stringify({centerId:cid}),ciphertext:'xxxxxxxxxxxxxxxxxxxx'}),/소유자/,'server checks actual branch owner');
+await role('authenticated',member);await reject(()=>payload('gym_prepare_checkout',{productId:pid,revision:2,agreed:true}),/전화번호/,'profile required');await payload('gym_update_profile',{name:'회원 A',phone:'010-1234-5678'});
+await reject(()=>payload('gym_update_profile',{name:'',phone:'123'}),/이름/,'invalid profile rejected');await reject(()=>payload('gym_prepare_checkout',{productId:pid,revision:2,agreed:false}),/동의/,'terms consent required');await reject(()=>payload('gym_prepare_checkout',{productId:pid,revision:1,agreed:true}),/변경/,'stale terms revision rejected');
+const order=await payload('gym_prepare_checkout',{productId:pid,revision:2,agreed:true,lockerId:lid,amount:1});assert.equal(order.amount,55000);pass('server computes membership and locker price');
+await role('authenticated',other);await payload('gym_update_profile',{name:'회원 B',phone:'01099998888'});await reject(()=>payload('gym_prepare_checkout',{productId:pid,revision:2,agreed:true,lockerId:lid}),/락카/,'locker double-booking blocked');assert.equal((await db.query('select * from public.gym_checkout_orders')).rows.length,0);pass('checkout records isolated');
+await reject(()=>call('gym_claim_payment',{oid:order.orderId,actor:member}),/permission denied/,'browser cannot access merchant secrets');await role('service_role');await reject(()=>call('gym_claim_payment',{oid:order.orderId,actor:other}),/권한/,'callback bound to customer');await call('gym_claim_payment',{oid:order.orderId,actor:member});await reject(()=>call('gym_finish_payment',{oid:order.orderId,payment_key_value:'pay1',paid_amount:1}),/일치/,'wrong payment amount rejected');
+const mid=await call('gym_finish_payment',{oid:order.orderId,payment_key_value:'pay1',paid_amount:55000});assert.equal(await call('gym_finish_payment',{oid:order.orderId,payment_key_value:'pay1',paid_amount:55000}),mid);pass('payment completion idempotent');
+await role('postgres');let m=(await db.query('select * from public.gym_memberships where id=$1',[mid])).rows[0];assert.equal((new Date(m.period_end)-new Date(m.period_start))/86400000,14);assert.equal(m.locker_amount,5000);pass('one-time two-week period and locker snapshot');
+await role('authenticated',owner);await payload('gym_save_product_v2',{...base,id:pid,terms:'약관 v2',cancellationNotice:'해지 v2',price:80000,recurring:true,intervalUnit:'month',intervalCount:3});
+await role('postgres');m=(await db.query('select * from public.gym_memberships where id=$1',[mid])).rows[0];assert.equal(m.terms_snapshot,'약관 v1');assert.equal(m.unit_amount,50000);pass('purchased terms and price immutable');
+await role('authenticated',member);await reject(()=>call('gym_cancel_membership',{mid}),/정기결제/,'one-time membership not recurring');await role('authenticated',other);const ro=await payload('gym_prepare_checkout',{productId:pid,revision:3,agreed:true});await role('service_role');await call('gym_claim_payment',{oid:ro.orderId,actor:other});await reject(()=>call('gym_finish_payment',{oid:ro.orderId,payment_key_value:'pay2',paid_amount:80000}),/인증/,'billing token required');
+const rm=await call('gym_finish_payment',{oid:ro.orderId,payment_key_value:'pay2',paid_amount:80000,billing_cipher:'encrypted-billing-key'});await role('authenticated',member);await reject(()=>call('gym_cancel_membership',{mid:rm}),/본인/,'cannot cancel other member');
+await role('postgres');assert.equal(new Date((await db.query("select gym_private.gym_period('2026-01-31 00:00:00+09','month',1,2) as at")).rows[0].at).toISOString(),'2026-03-30T15:00:00.000Z');pass('month-end anchor does not drift');await db.query("update public.gym_memberships set period_end=now()-interval '1 minute' where id=$1",[rm]);
+await role('service_role');let due=await call('gym_due_orders',{});assert.equal(due.length,1);assert.equal((await call('gym_due_orders',{})).length,1);pass('scheduled renewal idempotent');
+await call('gym_claim_payment',{oid:due[0].id,actor:other});await call('gym_finish_payment',{oid:due[0].id,payment_key_value:'pay3',paid_amount:80000});
+await role('postgres');const renewed=(await db.query('select * from public.gym_memberships where id=$1',[rm])).rows[0];assert.equal(renewed.cycle_number,2);assert.equal(renewed.interval_count,3);pass('three-month renewal extends original contract');
+await db.query("update public.gym_memberships set period_end=now()-interval '1 minute' where id=$1",[rm]);await role('service_role');due=await call('gym_due_orders',{});
+await role('authenticated',other);await call('gym_cancel_membership',{mid:rm});await role('service_role');await reject(()=>call('gym_claim_payment',{oid:due[0].id,actor:other}),/취소/,'cancellation stops unstarted renewal');assert.equal((await call('gym_due_orders',{})).length,0);pass('no future renewal after cancellation');await role('anon');await reject(()=>db.query('select * from public.gym_memberships'),/permission denied/,'anonymous cannot read memberships');
+console.log(`${passed} commerce checks passed`);await db.close();

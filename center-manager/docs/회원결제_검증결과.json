@@ -1,0 +1,13 @@
+{
+  "date": "2026-10-12",
+  "newDatabaseChecks": 30,
+  "mockPaymentServerChecks": 12,
+  "previousChecks": 75,
+  "typecheck": "PASS",
+  "pagesBuild": "PASS",
+  "browser": "Public catalog, product detail, social login buttons, mobile width inspected",
+  "liveProviderLogin": "not configured or tested",
+  "liveTossCharge": "not configured or tested",
+  "hostedMigration": "not applied",
+  "edgeFunctions": "not deployed"
+}

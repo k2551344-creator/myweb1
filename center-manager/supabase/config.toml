@@ -1,0 +1,6 @@
+[functions.gym-payments]
+verify_jwt = false
+# Function validates Supabase user JWT or CRON_SECRET itself.
+[functions.naver-userinfo]
+verify_jwt = false
+# Naver validates its own access token; this is not a Supabase JWT endpoint.

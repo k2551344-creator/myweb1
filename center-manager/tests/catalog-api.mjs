@@ -1,0 +1,48 @@
+import {readFileSync} from 'node:fs';
+import assert from 'node:assert/strict';
+import {PGlite} from '../.sites-runtime/sql-check/node_modules/@electric-sql/pglite/dist/index.js';
+const db=new PGlite();await db.waitReady;
+const source=readFileSync('tests/supabase-schema.mjs','utf8');
+await db.exec(source.split('const bootstrap=`')[1].split('`;')[0].replace('email text,','email text,email_confirmed_at timestamptz,'));
+await db.exec(readFileSync('supabase/migrations/202609290001_initial.sql','utf8'));
+const migration=readFileSync('supabase/migrations/202609290002_catalog.sql','utf8');
+await db.exec(migration);await db.exec(migration);
+let count=0;const pass=s=>{count++;console.log('PASS '+s)};
+pass('incremental migration and safe repeat');
+const owner='10000000-0000-4000-8000-000000000001',other='10000000-0000-4000-8000-000000000002',staff='10000000-0000-4000-8000-000000000003';
+await db.exec(`insert into auth.users(id,email,email_confirmed_at) values('${owner}','taehwancoen@naver.com',now()),('${other}','other@test.invalid',now()),('${staff}','staff@test.invalid',now())`);
+const bootstrap=readFileSync('supabase/setup/04_최초관리자지정.sql','utf8');await db.exec(bootstrap);await db.exec(bootstrap);
+assert.equal((await db.query('select * from public.centers')).rows.length,1);pass('verified designated owner initialized once');
+const cid=(await db.query('select id from public.centers')).rows[0].id;
+async function role(name,user=''){await db.exec(`reset role;select set_config('request.jwt.claim.sub','${user}',false);set role ${name}`)}
+async function rpc(name,p){return (await db.query(`select public.${name}($1::jsonb) as result`,[JSON.stringify(p)])).rows[0].result;}
+async function reject(fn,pattern,label){await assert.rejects(fn,pattern);pass(label)}
+const center={id:cid,name:'본점 수정',brand:'ANY BOXING',active:true,bgColor:'#123456',headline:'운동 시작',overlay:30};
+await role('anon');await reject(()=>rpc('gym_save_center',center),/permission denied/,'anonymous write denied');
+await role('authenticated',other);await reject(()=>rpc('gym_save_center',center),/권한/,'unassigned member cannot edit center');
+await reject(()=>rpc('gym_save_center',{...center,id:null}),/권한/,'unassigned member cannot create center');
+await role('authenticated',owner);await rpc('gym_save_center',center);pass('owner saves center and appearance atomically');
+const product={centerId:cid,name:'월 회원권',description:'기본',category:'월 회원권',price:90000,recurring:true,weeklyLimit:3,capacity:20,stock:0,active:true,selling:true,sort:1,accessCenters:[cid]};
+const pid=await rpc('gym_save_product',product);await rpc('gym_save_product',{...product,id:pid});assert.equal((await db.query('select * from public.product_prices')).rows.length,1);pass('product save avoids duplicate price history');
+await rpc('gym_save_product',{...product,id:pid,price:110000});assert.equal((await db.query('select * from public.product_prices')).rows.length,2);pass('price change appends immutable history');
+await reject(()=>rpc('gym_save_product',{...product,id:pid,price:-1,name:'must rollback'}),/check constraint/,'invalid price rejected');assert.equal((await db.query('select name from public.products where id=$1',[pid])).rows[0].name,product.name);pass('invalid save rolls back product changes');
+await reject(()=>rpc('gym_save_product',{...product,id:pid,accessCenters:[]}),/선택/,'empty access center list rejected');
+await role('postgres');const c2=(await db.query("insert into public.centers(name,brand) values('Other','OTHER') returning id")).rows[0].id;
+await db.query("insert into public.center_admins(center_id,user_id,role) values($1,$2,'staff')",[cid,staff]);
+await role('authenticated',staff);await reject(()=>rpc('gym_save_product',{...product,id:pid}),/권한/,'staff cannot change product');
+await role('authenticated',owner);await reject(()=>rpc('gym_save_product',{...product,id:pid,centerId:c2}),/권한/,'cross-center product write denied');
+await reject(()=>rpc('gym_save_product',{...product,id:pid,accessCenters:[c2]}),/권한/,'cross-center access grant denied');
+const mediaId='80000000-0000-4000-8000-000000000001',path=cid+'/'+mediaId+'.png';
+await reject(()=>rpc('gym_register_media',{id:mediaId,centerId:cid,path,type:'image/png',size:100}),/찾을 수/,'missing storage upload rejected');
+await db.query("insert into storage.objects(bucket_id,name) values('center-media',$1)",[path]);
+await rpc('gym_register_media',{id:mediaId,centerId:cid,path,type:'image/png',size:100});pass('own uploaded image registered');
+await role('anon');assert.equal((await db.query('select * from public.gym_catalog_media()')).rows.length,0);pass('orphan image metadata private');
+await role('authenticated',owner);await rpc('gym_save_product',{...product,id:pid,imageId:mediaId});
+await role('anon');assert.equal((await db.query('select * from public.gym_catalog_media()')).rows.length,1);pass('published product image visible');
+await role('authenticated',owner);await rpc('gym_save_product',{...product,id:pid,imageId:mediaId,selling:false});
+await role('anon');assert.equal((await db.query('select * from public.gym_catalog_media()')).rows.length,0);pass('withdrawn product image hidden');
+await role('authenticated',owner);await rpc('gym_save_center',{...center,imageId:mediaId});await role('anon');assert.equal((await db.query('select * from public.gym_catalog_media()')).rows.length,1);pass('center background visible');
+await role('authenticated',owner);await rpc('gym_save_center',{...center,imageId:mediaId,active:false});await role('anon');assert.equal((await db.query('select * from public.gym_catalog_media()')).rows.length,0);pass('inactive center background hidden');
+await role('authenticated',owner);await reject(()=>db.exec("insert into public.centers(name,brand) values('bypass','bypass')"),/permission denied/,'direct browser writes remain closed');
+await role('postgres');await db.exec("delete from public.center_admins;update auth.users set email_confirmed_at=null;");await reject(()=>db.exec(bootstrap),/이메일 인증/,'bootstrap rejects unverified account');await db.exec('rollback');
+console.log(`${count} catalog API checks passed`);await db.close();

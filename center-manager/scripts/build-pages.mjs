@@ -1,0 +1,10 @@
+import {build,loadEnv} from 'vite';
+import react from '@vitejs/plugin-react';
+import {resolve} from 'node:path';
+import {writeFileSync} from 'node:fs';
+const env={...loadEnv('production',process.cwd(),''),...process.env};
+const url=env.NEXT_PUBLIC_SUPABASE_URL,key=env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+if(!url?.startsWith('https://')||!key?.startsWith('sb_publishable_'))throw Error('Supabase URL 및 공개 키를 설정해 주세요.');
+await build({configFile:false,root:resolve('web'),base:'/myweb1/',publicDir:false,plugins:[react()],define:{__SUPABASE_URL__:JSON.stringify(url),__SUPABASE_KEY__:JSON.stringify(key)},build:{outDir:resolve('pages-dist'),emptyOutDir:true,sourcemap:false}});
+writeFileSync('pages-dist/.nojekyll','');
+console.log('GitHub Pages files: pages-dist');

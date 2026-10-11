@@ -1,0 +1,36 @@
+# Secrets and local environment settings (placeholder examples are allowed).
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*.p12
+*.pfx
+.aws/
+
+# Dependencies, generated output, caches and local databases.
+node_modules/
+.pnp.*
+.next/
+.vinext/
+.wrangler/
+.sites-runtime/
+.vercel/
+pages-dist/
+dist/
+coverage/
+*.tsbuildinfo
+*.log
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+
+# Agent/editor local state and duplicate upload packages.
+.codex/
+.agents/
+.DS_Store
+Thumbs.db
+/깃허브_업로드/
+/깃허브_업로드.zip

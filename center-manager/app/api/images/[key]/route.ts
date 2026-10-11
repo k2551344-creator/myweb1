@@ -1,0 +1,3 @@
+import {env} from 'cloudflare:workers';
+import {demoOwner} from '../../../../services/demo/auth';
+export async function GET(_request:Request,{params}:{params:Promise<{key:string}>}){try{const owner=await demoOwner();const {key}=await params;if(!/^[a-f0-9-]{36}\.(png|jpg|webp)$/.test(key))return new Response(null,{status:404});const object=await (env as unknown as {BUCKET:R2Bucket}).BUCKET.get(owner+'/'+key);if(!object)return new Response(null,{status:404});return new Response(object.body,{headers:{'Content-Type':object.httpMetadata?.contentType??'application/octet-stream','Cache-Control':'private, max-age=3600','X-Content-Type-Options':'nosniff'}});}catch{return new Response(null,{status:401});}}

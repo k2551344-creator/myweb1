@@ -1,0 +1,12 @@
+{
+  "date": "2026-09-29",
+  "databaseCatalogChecks": 23,
+  "initialSchemaChecks": 40,
+  "existingDomainChecks": 12,
+  "typecheck": "PASS",
+  "pagesBuild": "PASS",
+  "assetPaths": "PASS",
+  "liveDatabaseCatalogMigration": "not applied at browser verification",
+  "githubPublished": false,
+  "liveAuthAndStorageEndToEnd": "awaiting SQL deployment and owner signup"
+}
