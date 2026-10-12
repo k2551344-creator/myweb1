@@ -1,0 +1,10 @@
+import {readFileSync} from 'node:fs';
+import assert from 'node:assert/strict';
+import {PGlite} from '../.sites-runtime/sql-check/node_modules/@electric-sql/pglite/dist/index.js';
+import ts from 'typescript';
+import vm from 'node:vm';
+process.on('uncaughtException',e=>{console.error(e.message,e.where??'');process.exit(1)});
+const db=new PGlite();await db.waitReady;await db.exec(readFileSync('tests/supabase-schema.mjs','utf8').split('const bootstrap=`')[1].split('`;')[0]);await db.exec('alter table auth.users add column email_confirmed_at timestamptz default now()');
+for(const f of ['supabase/migrations/202609290001_initial.sql','supabase/migrations/202609290002_catalog.sql','supabase/migrations/202610120001_member_commerce.sql','supabase/setup/08_구글로그인_회원관리.sql','supabase/setup/08_구글로그인_회원관리.sql'])await db.exec(readFileSync(f,'utf8'));
+assert.equal((await db.query("select to_regclass('public.gym_roster') is not null and to_regclass('gym_private.kiosk_devices') is not null as ok")).rows[0].ok,true);console.log('PASS user setup 08 works directly after 05 and can repeat');await db.close();
+const context={exports:{}};vm.runInNewContext(ts.transpileModule(readFileSync('web/csv.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,context);const csv=context.exports.csvText(['이름','번호'],[['=HYPERLINK("bad")','01012345678'],[' +SUM(1,2)','한글,따옴표"\n줄바꿈']]);assert.ok(csv.startsWith('\uFEFF'));assert.ok(csv.includes('"\'=HYPERLINK(""bad"")"'));assert.ok(csv.includes('"\' +SUM(1,2)"'));assert.ok(csv.includes('"01012345678"'));assert.ok(csv.includes('한글,따옴표""\n줄바꿈'));console.log('PASS UTF-8 CSV preserves content and neutralizes spreadsheet formula injection');

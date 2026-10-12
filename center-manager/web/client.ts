@@ -37,10 +37,10 @@ export async function uploadImage(centerId:string,file:File){
  const signed=checked(await db.storage.from('center-media').createSignedUrl(path,3600));
  imageIds.set(signed.signedUrl,id);return signed.signedUrl;
 }
-export function friendlyError(e:unknown){const message=e instanceof Error?e.message:(e as any)?.message??'요청에 실패했습니다.';if(/schema cache|does not exist/.test(message))return '추가 DB 설정이 필요합니다. 관리자에게 최신 SQL(05번 및 07번) 적용 여부를 확인해 주세요.';if(/Invalid login credentials/.test(message))return '이메일 또는 비밀번호를 확인해 주세요.';if(/Email not confirmed/.test(message))return '가입 이메일의 인증 링크를 먼저 눌러 주세요.';return message;}
+export function friendlyError(e:unknown){const message=e instanceof Error?e.message:(e as any)?.message??'요청에 실패했습니다.';if(/schema cache|does not exist/.test(message))return '추가 DB 설정이 필요합니다. 관리자에게 최신 SQL(05·07·08번) 적용 여부를 확인해 주세요.';if(/Invalid login credentials/.test(message))return '이메일 또는 비밀번호를 확인해 주세요.';if(/Email not confirmed/.test(message))return '가입 이메일의 인증 링크를 먼저 눌러 주세요.';return message;}
 
 export async function updateProfile(name:string,phone:string){const {error}=await db.rpc('gym_update_profile',{payload:{name,phone}});if(error)throw error;}
-export async function memberData(){const {data:{session}}=await db.auth.getSession();if(!session)return {profile:null,memberships:[]};const [p,m]=await Promise.all([db.from('profiles').select('name,phone').eq('id',session.user.id).single(),db.from('gym_memberships').select('*').eq('member_id',session.user.id).order('created_at',{ascending:false})]);return {profile:checked(p),memberships:checked(m)};}
+export async function memberData(centerId?:string){const {data:{session}}=await db.auth.getSession();if(!session)return {profile:null,memberships:[]};const sync=await db.rpc('gym_sync_member',{cid:centerId||null});if(sync.error)throw sync.error;const [p,m]=await Promise.all([db.from('profiles').select('name,phone').eq('id',session.user.id).single(),db.rpc('gym_my_passes')]);return {profile:checked(p),memberships:checked(m) as any[]};}
 export async function listLockers(centerId:string){return checked(await db.rpc('gym_list_lockers',{cid:centerId})) as any[];}
 export async function saveLocker(payload:any){return checked(await db.rpc('gym_save_locker',{payload}));}
 export async function getTossConfig(centerId:string){const r=await db.from('payment_configs').select('*').eq('center_id',centerId).eq('is_current',true).maybeSingle();if(r.error)throw r.error;return r.data;}
