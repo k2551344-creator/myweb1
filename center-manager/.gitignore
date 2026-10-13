@@ -45,3 +45,5 @@ next-env.d.ts
 /outputs/
 /work/
 !/.env.example
+
+!/supabase/functions/.env.example

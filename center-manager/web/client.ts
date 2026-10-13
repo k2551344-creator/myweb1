@@ -37,7 +37,7 @@ export async function uploadImage(centerId:string,file:File){
  const signed=checked(await db.storage.from('center-media').createSignedUrl(path,3600));
  imageIds.set(signed.signedUrl,id);return signed.signedUrl;
 }
-export function friendlyError(e:unknown){const message=e instanceof Error?e.message:(e as any)?.message??'요청에 실패했습니다.';if(/schema cache|does not exist/.test(message))return '추가 DB 설정이 필요합니다. 관리자에게 최신 SQL(05·07·08번) 적용 여부를 확인해 주세요.';if(/Invalid login credentials/.test(message))return '이메일 또는 비밀번호를 확인해 주세요.';if(/Email not confirmed/.test(message))return '가입 이메일의 인증 링크를 먼저 눌러 주세요.';return message;}
+export function friendlyError(e:unknown){const message=e instanceof Error?e.message:(e as any)?.message??'요청에 실패했습니다.';if(/schema cache|does not exist/.test(message))return '추가 DB 설정이 필요합니다. 관리자에게 최신 SQL(05·08·09번) 적용 여부를 확인해 주세요.';if(/Invalid login credentials/.test(message))return '이메일 또는 비밀번호를 확인해 주세요.';if(/Email not confirmed/.test(message))return '가입 이메일의 인증 링크를 먼저 눌러 주세요.';return message;}
 
 export async function updateProfile(name:string,phone:string){const {error}=await db.rpc('gym_update_profile',{payload:{name,phone}});if(error)throw error;}
 export async function memberData(centerId?:string){const {data:{session}}=await db.auth.getSession();if(!session)return {profile:null,memberships:[]};const sync=await db.rpc('gym_sync_member',{cid:centerId||null});if(sync.error)throw sync.error;const [p,m]=await Promise.all([db.from('profiles').select('name,phone').eq('id',session.user.id).single(),db.rpc('gym_my_passes')]);return {profile:checked(p),memberships:checked(m) as any[]};}
@@ -50,7 +50,8 @@ let sdkPromise:Promise<any>|null=null;
 async function tossSdk(){if((window as any).TossPayments)return (window as any).TossPayments;if(!sdkPromise)sdkPromise=new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='https://js.tosspayments.com/v2/standard';script.onload=()=>resolve((window as any).TossPayments);script.onerror=()=>{sdkPromise=null;script.remove();reject(Error('결제창을 불러오지 못했습니다.'));};document.head.appendChild(script);});return sdkPromise;}
 export async function beginCheckout(product:Product,lockerId:string,agreed:boolean){
  const sdk=await tossSdk();
- const order=checked(await db.rpc('gym_prepare_checkout',{payload:{productId:product.id,revision:product.revision,lockerId:lockerId||null,agreed}}));
+ const order=await paymentAction({action:'prepare',payload:{productId:product.id,revision:product.revision,lockerId:lockerId||null,agreed}});
+ if(!String(order.clientKey).startsWith('test_ck_'))throw Error('현재 웹은 테스트 결제만 지원합니다.');
  const payment=sdk(order.clientKey).payment({customerKey:order.customerKey});
  const base=location.origin+import.meta.env.BASE_URL;
  const successUrl=base+'?flow='+(order.recurring?'billing':'payment')+'&orderId='+order.orderId;
